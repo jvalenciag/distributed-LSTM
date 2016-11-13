@@ -6,6 +6,12 @@ and semi-based this off the sentiment analyzer here:
 http://deeplearning.net/tutorial/lstm.html
 
 Written by: Dominik Kaukinen
+----------------------------------------------------------------------
+
+ps_host0$     python dtrain.py --job_name="ps" --task_index=0 --workers=worker_host0:2222,worker_host1:2222
+worker_host0$ python dtrain.py --job_name="worker" --task_index=0 --workers=worker_host0:2222,worker_host1:2222
+worker_host1$ python dtrain.py --job_name="worker" --task_index=1 --workers=worker_host0:2222,worker_host1:2222
+
 '''
 import tensorflow as tf
 from tensorflow.python.platform import gfile
@@ -32,8 +38,31 @@ flags.DEFINE_string("data_dir", "data/", "Path to main data directory.")
 flags.DEFINE_string("checkpoint_dir", "data/checkpoints/",
      "Directory to store/restore checkpoints")
 
+'''
+ClusterSpec
+'''
+parameter_server = ["ps_host0:2222"]
+tf.app.flags.DEFINE_string("workers", "", "hostname : port")
+
+'''
+Server
+'''
+tf.app.flags.DEFINE_string("job_name", "", "ps || worker")
+tf.app.flags.DEFINE_integer("task_index", 0, "Index of task within the job")
+
+FLAGS = tf.app.flags.FLAGS
 
 def main():
+    workers = FLAGS.workers.split(",")
+
+    # Create a cluster from the parameter_server and workers
+    cluster = tf.train.ClusterSpec({"ps": parameter_server, "worker": workers})
+
+    # Create and start a server for the local task
+    server = tf.train.Server(cluster,
+                            job_name=FLAGS.job_name,
+                            task_index=FLAGS.task_index)
+
     hyper_params = check_get_hyper_param_dic()
     util.dataprocessor.run(hyper_params["max_seq_length"], hyper_params["max_vocab_size"])
 
@@ -59,64 +88,84 @@ def main():
     train_start_end_index = [0, int(hyper_params["train_frac"] * len(data))]
     test_start_end_index = [int(hyper_params["train_frac"] * len(data)) + 1, len(data) - 1]
     print "Number of training examples per batch: {0}, \
-    \nNumber of batches per epoch: {1}".format(hyper_params["batch_size"], num_batches)
-    with tf.Session() as sess:
-        #writer = tf.train.SummaryWriter("/tmp/tb_logs", sess.graph)
-        writer = tf.train.SummaryWriter("/home/mac/venv/neural-sentiment-master/log", sess.graph)
-        model = create_model(sess, hyper_params, vocab_size)
-    # train model and save to checkpoint
-        print "Beggining training..."
-        print "Maximum number of epochs to train for: {0}".format(hyper_params["max_epoch"])
-        print "Batch size: {0}".format(hyper_params["batch_size"])
-        print "Starting learning rate: {0}".format(hyper_params["learning_rate"])
-        print "Learning rate decay factor: {0}".format(hyper_params["lr_decay_factor"])
+	\nNumber of batches per epoch: {1}".format(hyper_params["batch_size"], num_batches)
 
-        step_time, loss = 0.0, 0.0
-        previous_losses = []
-        tot_steps = num_batches * hyper_params["max_epoch"]
-        model.initData(data, train_start_end_index, test_start_end_index)
-        # starting at step 1 to prevent test set from running after first batch
-        for step in xrange(1, tot_steps):
-            # Get a batch and make a step.
-            start_time = time.time()
 
-            inputs, targets, seq_lengths = model.getBatch()
-            str_summary, step_loss, _ = model.step(sess, inputs, targets, seq_lengths, False)
+    if FLAGS.job_name == "ps":
+        server.join()
+    elif FLAGS.job_name == "worker":
 
-            step_time += (time.time() - start_time) / \
-                hyper_params["steps_per_checkpoint"]
-            loss += step_loss / hyper_params["steps_per_checkpoint"]
+        #For each local worker do...
+        with tf.device(tf.train.replica_device_setter(
+                worker_device="/job:worker/task:%d" % FLAGS.task_index,
+                cluster=cluster)):
 
-            # Once in a while, we save checkpoint, print statistics, and run
-            # evals.
-            if step % hyper_params["steps_per_checkpoint"] == 0:
-                writer.add_summary(str_summary, step)
-                # Print statistics for the previous epoch.
-                print ("global step %d learning rate %.7f step-time %.2f loss %.4f"
-                       % (model.global_step.eval(), model.learning_rate.eval(),step_time, loss))
-                # Decrease learning rate if no improvement was seen over last 3
-                # times.
-                if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
-                    sess.run(model.learning_rate_decay_op)
-                previous_losses.append(loss)
-                # Save checkpoint and zero timer and loss.
-                step_time, loss, test_accuracy = 0.0, 0.0, 0.0
-                # Run evals on test set and print their accuracy.
-                print "Running test set"
-                for test_step in xrange(len(model.test_data)):
-                    inputs, targets, seq_lengths = model.getBatch(True)
-                    str_summary, test_loss, _, accuracy = model.step(sess, inputs, targets, seq_lengths, True)
-                    loss += test_loss
-                    test_accuracy += accuracy
-                normalized_test_loss, normalized_test_accuracy = loss / \
-                    len(model.test_data), test_accuracy / len(model.test_data)
-                #checkpoint_path = os.path.join(FLAGS.checkpoint_dir,"sentiment{0}.ckpt".format(normalized_test_accuracy))
-                #model.saver.save(sess,checkpoint_path,global_step=model.global_step)
-                writer.add_summary(str_summary, step)
-                print "Avg Test Loss: {0}, Avg Test Accuracy: {1}".format(normalized_test_loss, normalized_test_accuracy)
-                print "-------Step {0}/{1}------".format(step, tot_steps)
-                loss = 0.0
-                sys.stdout.flush()
+            #writer = tf.train.SummaryWriter("/tmp/tb_logs", sess.graph)
+            #writer = tf.train.SummaryWriter("/home", sess.graph)
+            #model = create_model(sess, hyper_params, vocab_size)
+        # train model and save to checkpoint
+            print "Beggining training..."
+            print "Maximum number of epochs to train for: {0}".format(hyper_params["max_epoch"])
+            print "Batch size: {0}".format(hyper_params["batch_size"])
+            print "Starting learning rate: {0}".format(hyper_params["learning_rate"])
+            print "Learning rate decay factor: {0}".format(hyper_params["lr_decay_factor"])
+
+            step_time, loss = 0.0, 0.0
+            previous_losses = []
+            tot_steps = num_batches * hyper_params["max_epoch"]
+            #model.initData(data, train_start_end_index, test_start_end_index)
+
+        sv = tf.train.Supervisor(is_chief=(FLAGS.task_index == 0),
+                                 logdir="/home")
+                                 #global_step=model.global_step)
+
+        with sv.managed_session(server.target) as sess:
+            writer = tf.train.SummaryWriter("/home", sess.graph)
+            model = create_model(sess, hyper_params, vocab_size)
+            model.initData(data, train_start_end_index, test_start_end_index)
+            # starting at step 1 to prevent test set from running after first batch
+            for step in xrange(1, tot_steps):
+                # Get a batch and make a step.
+                start_time = time.time()
+
+                inputs, targets, seq_lengths = model.getBatch()
+                str_summary, step_loss, _ = model.step(sess, inputs, targets, seq_lengths, False)
+
+                step_time += (time.time() - start_time) / \
+                    hyper_params["steps_per_checkpoint"]
+                loss += step_loss / hyper_params["steps_per_checkpoint"]
+
+                # Once in a while, we save checkpoint, print statistics, and run
+                # evals.
+                if step % hyper_params["steps_per_checkpoint"] == 0:
+                    writer.add_summary(str_summary, step)
+                    # Print statistics for the previous epoch.
+                    print ("global step %d learning rate %.7f step-time %.2f loss %.4f"
+                           % (model.global_step.eval(), model.learning_rate.eval(),step_time, loss))
+                    # Decrease learning rate if no improvement was seen over last 3
+                    # times.
+                    if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
+                        sess.run(model.learning_rate_decay_op)
+                    previous_losses.append(loss)
+                    # Save checkpoint and zero timer and loss.
+                    step_time, loss, test_accuracy = 0.0, 0.0, 0.0
+                    # Run evals on test set and print their accuracy.
+                    print "Running test set"
+                    for test_step in xrange(len(model.test_data)):
+                        inputs, targets, seq_lengths = model.getBatch(True)
+                        str_summary, test_loss, _, accuracy = model.step(sess, inputs, targets, seq_lengths, True)
+                        loss += test_loss
+                        test_accuracy += accuracy
+                    normalized_test_loss, normalized_test_accuracy = loss / \
+                        len(model.test_data), test_accuracy / len(model.test_data)
+                    #checkpoint_path = os.path.join(FLAGS.checkpoint_dir,"sentiment{0}.ckpt".format(normalized_test_accuracy))
+                    #model.saver.save(sess,checkpoint_path,global_step=model.global_step)
+                    writer.add_summary(str_summary, step)
+                    print "Avg Test Loss: {0}, Avg Test Accuracy: {1}".format(normalized_test_loss, normalized_test_accuracy)
+                    print "-------Step {0}/{1}------".format(step, tot_steps)
+                    loss = 0.0
+                    sys.stdout.flush()
+        sv.stop()
 
 
 def create_model(session, hyper_params, vocab_size):
