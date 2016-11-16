@@ -117,7 +117,7 @@ def main():
 
     with tf.Session() as sess:
         #writer = tf.train.SummaryWriter("/tmp/tb_logs", sess.graph)
-        writer = tf.train.SummaryWriter("/home/mac/venv/neural-sentiment-master/log", sess.graph)
+        writer = tf.train.SummaryWriter("/tmp/tb_logs", sess.graph)
 
         num_classes = 2
         vocab_size = vocab_size
@@ -264,7 +264,7 @@ def main():
         #                          global_step=global_step)
 
         # with sv.managed_session(server.target) as sess:
-        
+
         # starting at step 1 to prevent test set from running after first batch
         for step in xrange(1, tot_steps):
             # Get a batch and make a step.
@@ -272,7 +272,7 @@ def main():
 
             batch_inputs = train_data[train_batch_pointer]  # .transpose()
             targets = train_targets[train_batch_pointer]
-            seq_lengths = train_sequence_lengths[train_batch_pointer]
+            _seq_lengths = train_sequence_lengths[train_batch_pointer]
             train_batch_pointer += 1
             train_batch_pointer = train_batch_pointer % len(train_data)
             #getbatch()
@@ -295,7 +295,7 @@ def main():
             # for i in xrange(max_seq_length):
             input_feed[seq_input.name] = inputs
             input_feed[target.name] = targets
-            input_feed[seq_lengths.name] = seq_lengths
+            input_feed[seq_lengths.name] = _seq_lengths
             input_feed[str_summary_type.name] = "train"
             output_feed = [merged, mean_loss, update]
             outputs = sess.run(output_feed, input_feed)
@@ -326,18 +326,19 @@ def main():
                     #getbatch()
                     batch_inputs = test_data[test_batch_pointer]  # .transpose()
                     targets = test_targets[test_batch_pointer]
-                    seq_lengths = test_sequence_lengths[test_batch_pointer]
+                    _seq_lengths = test_sequence_lengths[test_batch_pointer]
                     test_batch_pointer += 1
                     test_batch_pointer = test_batch_pointer % len(test_data)
-                    #getbatch
+
                     inputs, targets = batch_inputs, targets
-                    
+
                     #step()
                     input_feed = {}
                     # for i in xrange(max_seq_length):
                     input_feed[seq_input.name] = inputs
                     input_feed[target.name] = targets
-                    input_feed[seq_lengths.name] = seq_lengths
+                    print(seq_lengths)
+                    input_feed[_seq_lengths_.name] = seq_lengths
                     input_feed[str_summary_type.name] = "test"
                     output_feed = [merged, mean_loss, y, accuracy]
                     outputs = session.run(output_feed, input_feed)
