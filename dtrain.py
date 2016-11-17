@@ -37,7 +37,7 @@ flags.DEFINE_string("checkpoint_dir", "data/checkpoints/", "Directory to store/r
 #sentiment_network_params
 hidden_size = 50        # number of units in a hidden layer
 num_layers = 2          # number of hidden lstm layers
-max_gradient_norm = 0 # maximum size of gradient
+max_gradient_norm = 5   # maximum size of gradient -> pram grad_clip
 learning_rate = 0.01    # the learning rate to use in param adjustment
 lr_decay_factor = 0.97  #
 batch_size = 200        #
@@ -52,9 +52,6 @@ forward_only = False    # whether to run backward pass or not
 max_seq_length = 200    # the maximum length of the input sequence
 use_config_file_if_checkpoint_exists = True
 steps_per_checkpoint = 50
-
-
-
 # '''
 # ClusterSpec
 # '''
@@ -269,15 +266,7 @@ def main():
         for step in xrange(1, tot_steps):
             # Get a batch and make a step.
             start_time = time.time()
-
-            batch_inputs = train_data[train_batch_pointer]  # .transpose()
-            targets = train_targets[train_batch_pointer]
-            _seq_lengths = train_sequence_lengths[train_batch_pointer]
-            train_batch_pointer += 1
-            train_batch_pointer = train_batch_pointer % len(train_data)
             #getbatch()
-            inputs, targets = batch_inputs, targets
-
             '''
             Inputs:
             session: tensorflow session
@@ -293,9 +282,13 @@ def main():
             #step()
             input_feed = {}
             # for i in xrange(max_seq_length):
-            input_feed[seq_input.name] = inputs
-            input_feed[target.name] = targets
-            input_feed[seq_lengths.name] = _seq_lengths
+            input_feed[seq_input.name] = train_data[train_batch_pointer]  # .transpose()
+            input_feed[target.name] = train_targets[train_batch_pointer]
+            input_feed[seq_lengths.name] = train_sequence_lengths[train_batch_pointer]
+
+            train_batch_pointer += 1
+            train_batch_pointer = train_batch_pointer % len(train_data)
+
             input_feed[str_summary_type.name] = "train"
             output_feed = [merged, mean_loss, update]
             outputs = sess.run(output_feed, input_feed)
@@ -324,29 +317,28 @@ def main():
                 for test_step in xrange(len(test_data)):
 
                     #getbatch()
-                    batch_inputs = test_data[test_batch_pointer]  # .transpose()
-                    targets = test_targets[test_batch_pointer]
-                    _seq_lengths = test_sequence_lengths[test_batch_pointer]
+                    #step()
+                    _input_feed = {}
+                    # for i in xrange(max_seq_length):
+                    _input_feed[seq_input.name] = test_data[test_batch_pointer]  # .transpose()
+                    _input_feed[target.name] = test_targets[test_batch_pointer]
+                    _input_feed[seq_lengths.name] = test_sequence_lengths[test_batch_pointer]
+
                     test_batch_pointer += 1
                     test_batch_pointer = test_batch_pointer % len(test_data)
 
-                    inputs, targets = batch_inputs, targets
+                    _input_feed[str_summary_type.name] = "test"
+                    _output_feed = [merged, mean_loss, y, accuracy]
 
-                    #step()
-                    input_feed = {}
-                    # for i in xrange(max_seq_length):
-                    input_feed[seq_input.name] = inputs
-                    input_feed[target.name] = targets
-                    print(seq_lengths)
-                    input_feed[_seq_lengths_.name] = seq_lengths
-                    input_feed[str_summary_type.name] = "test"
-                    output_feed = [merged, mean_loss, y, accuracy]
-                    outputs = session.run(output_feed, input_feed)
+                    #print(_input_feed)
+                    #
+                    #print(_output_feed)
 
-                    str_summary, test_loss, _, accuracy = outputs[0], outputs[1], outputs[2], outputs[3]
+                    outputs = sess.run(_output_feed, _input_feed)
+                    str_summary, test_loss, _, _accuracy = outputs[0], outputs[1], outputs[2], outputs[3]
 
                     loss += test_loss
-                    test_accuracy += accuracy
+                    test_accuracy += _accuracy
                 normalized_test_loss, normalized_test_accuracy = loss / \
                     len(test_data), test_accuracy / len(test_data)
                 #checkpoint_path = os.path.join(FLAGS.checkpoint_dir,"sentiment{0}.ckpt".format(normalized_test_accuracy))
