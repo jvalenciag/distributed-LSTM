@@ -46,8 +46,9 @@ lr_decay_factor = 0.97
 batch_size = 50     
 max_epoch = 50         
 train_frac = 0.7        
-dropout = 0.5           
-max_vocab_size = 20000
+dropout = 0.5         
+#max_vocab_size = 20000  
+max_vocab_size = 10000
 forward_only = False    # whether to run backward pass or not
 
 '''
