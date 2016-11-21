@@ -36,19 +36,19 @@ flags.DEFINE_string("checkpoint_dir", "data/checkpoints/", "Directory to store/r
 '''
 sentiment_network_params
 '''
-#hidden_size = 50      # number of units in a hidden layer
-hidden_size = 25
-# num_layers = 2        # number of hidden lstm layers
-num_layers = 1
+hidden_size = 50      # number of units in a hidden layer
+#hidden_size = 25
+num_layers = 2        # number of hidden lstm layers
+#num_layers = 1
 max_gradient_norm = 5   # maximum size of gradient -> pram grad_clip
 lr_decay_factor = 0.97  
-# batch_size = 200   
-batch_size = 50     
+batch_size = 200   
+#batch_size = 50     
 max_epoch = 50         
 train_frac = 0.7        
 dropout = 0.5         
-#max_vocab_size = 20000  
-max_vocab_size = 10000
+max_vocab_size = 20000  
+#max_vocab_size = 10000
 forward_only = False    # whether to run backward pass or not
 
 '''
