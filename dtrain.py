@@ -31,32 +31,27 @@ import util.vocabmapping
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_string("data_dir", "data/", "Path to main data directory.")
-flags.DEFINE_string("checkpoint_dir", "data/checkpoints/", "Directory to store/restore checkpoints")
+flags.DEFINE_string("checkpoint_dir", "data/checkpoints2/", "Directory to store/restore checkpoints")
 
 '''
 sentiment_network_params
 '''
 hidden_size = 50      # number of units in a hidden layer
-#hidden_size = 25
 num_layers = 2        # number of hidden lstm layers
-#num_layers = 1
 max_gradient_norm = 5   # maximum size of gradient -> pram grad_clip
-lr_decay_factor = 0.97  
-batch_size = 200   
-#batch_size = 50     
-max_epoch = 50         
-train_frac = 0.7        
-dropout = 0.5         
-max_vocab_size = 20000  
-#max_vocab_size = 10000
+lr_decay_factor = 0.97
+batch_size = 200
+max_epoch = 1
+train_frac = 0.7
+dropout = 0.5
+max_vocab_size = 20000
 forward_only = False    # whether to run backward pass or not
-
 '''
 general params
 '''
 max_seq_length = 200    # the maximum length of the input sequence
-use_config_file_if_checkpoint_exists = True
 steps_per_checkpoint = 50
+
 '''
 ClusterSpec
 '''
@@ -119,7 +114,6 @@ def main():
             worker_device="/job:worker/task:%d" % FLAGS.task_index,
             cluster=cluster)):
 
-            #writer = tf.train.SummaryWriter("/tmp/tb_logs", sess.graph)
             num_classes = 2
             vocab_size = vocab_size
             #learning_rate = tf.Variable(float(learning_rate), trainable=False)
@@ -202,11 +196,6 @@ def main():
                 merged = tf.merge_summary([loss_summ, acc_summ])
             saver = tf.train.Saver(tf.all_variables())
 
-        #ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
-        #if ckpt and gfile.Exists(ckpt.model_checkpoint_path):
-        #    print "Reading model parameters from {0}".format(ckpt.model_checkpoint_path)
-         #   saver.restore(session, ckpt.model_checkpoint_path)
-        #else:
             print "Created model with fresh parameters."
             init_op = tf.initialize_all_variables()
 
@@ -259,27 +248,30 @@ def main():
             test_sequence_lengths = np.split(test_sequence_lengths,num_test_batches)
 
             sv = tf.train.Supervisor(#is_chief=(FLAGS.task_index == 0),
-                                     logdir="/tmp/tb_logs",
-                                     #saver=saver,
+                                     logdir="/home/mac/venv/neural-sentiment-master/logs",
+                                     saver=saver,
                                      global_step=global_step,
                                      init_op=init_op)
 
             #with sv.managed_session(server.target) as sess:
             with sv.prepare_or_wait_for_session(server.target) as sess:
 
-                writer = tf.train.SummaryWriter("/tmp/tb_logs", sess.graph)
+                if FLAGS.task_index == 0:
+                    writer = tf.train.SummaryWriter("/home/mac/venv/neural-sentiment-master/logs", sess.graph)
+
                 # starting at step 1 to prevent test set from running after first batch
-                for step in xrange(1, tot_steps):
+                for step in xrange(1, tot_steps+100):
+                    if (step == tot_steps+100):
+                        sv.stop()
+                        break
                     # Get a batch and make a step.
                     start_time = time.time()
-                    #getbatch()
                     '''
                     Inputs:
                     session: tensorflow session
                     inputs: list of list of ints representing tokens in review of batch_size
                     output: list of sentiment scores
                     seq_lengths: list of sequence lengths, provided at runtime to prevent need for padding
-
                     Returns:
                     merged_tb_vars, loss, none
                     or (in forward only):
@@ -305,7 +297,8 @@ def main():
 
                     # Once in a while, we save checkpoint, print statistics, and run evals.
                     if step % steps_per_checkpoint == 0:
-                        writer.add_summary(str_summary, step)
+                        if FLAGS.task_index == 0:
+                            writer.add_summary(str_summary, step)
                         # Print statistics for the previous epoch.
                         print ("global step %d learning rate %.7f step-time %.2f loss %.4f"
                                % (global_step.eval(), learning_rate.eval(),step_time, loss))
@@ -338,14 +331,14 @@ def main():
                             test_accuracy += _accuracy
                         normalized_test_loss, normalized_test_accuracy = loss / \
                             len(test_data), test_accuracy / len(test_data)
-                        #checkpoint_path = os.path.join(FLAGS.checkpoint_dir,"sentiment{0}.ckpt".format(normalized_test_accuracy))
-                        #saver.save(sess,checkpoint_path,global_step=global_step)
-                        writer.add_summary(str_summary, step)
+                        checkpoint_path = os.path.join(FLAGS.checkpoint_dir,"sentiment{0}.ckpt".format(normalized_test_accuracy))
+                        saver.save(sess,checkpoint_path,global_step=global_step)
+                        if FLAGS.task_index == 0:
+                            writer.add_summary(str_summary, step)
                         print "Avg Test Loss: {0}, Avg Test Accuracy: {1}".format(normalized_test_loss, normalized_test_accuracy)
                         print "-------Step {0}/{1}------".format(step, tot_steps)
                         loss = 0.0
                         sys.stdout.flush()
-            sv.stop()
 
 if __name__ == '__main__':
     main()
