@@ -31,27 +31,32 @@ import util.vocabmapping
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_string("data_dir", "data/", "Path to main data directory.")
-flags.DEFINE_string("checkpoint_dir", "data/checkpoints2/", "Directory to store/restore checkpoints")
+flags.DEFINE_string("checkpoint_dir", "data/checkpoints/", "Directory to store/restore checkpoints")
 
 '''
 sentiment_network_params
 '''
 hidden_size = 50      # number of units in a hidden layer
+#hidden_size = 25
 num_layers = 2        # number of hidden lstm layers
+#num_layers = 1
 max_gradient_norm = 5   # maximum size of gradient -> pram grad_clip
 lr_decay_factor = 0.97
 batch_size = 200
-max_epoch = 1
+#batch_size = 50
+max_epoch = 50
 train_frac = 0.7
 dropout = 0.5
 max_vocab_size = 20000
+#max_vocab_size = 10000
 forward_only = False    # whether to run backward pass or not
+
 '''
 general params
 '''
 max_seq_length = 200    # the maximum length of the input sequence
+use_config_file_if_checkpoint_exists = True
 steps_per_checkpoint = 50
-
 '''
 ClusterSpec
 '''
@@ -114,6 +119,7 @@ def main():
             worker_device="/job:worker/task:%d" % FLAGS.task_index,
             cluster=cluster)):
 
+            #writer = tf.train.SummaryWriter("/tmp/tb_logs", sess.graph)
             num_classes = 2
             vocab_size = vocab_size
             #learning_rate = tf.Variable(float(learning_rate), trainable=False)
@@ -143,8 +149,7 @@ def main():
                 embedded_tokens = tf.nn.embedding_lookup(W, seq_input)
                 embedded_tokens_drop = tf.nn.dropout(embedded_tokens, dropout_keep_prob_embedding)
 
-            rnn_input = [embedded_tokens_drop[:, i, :]
-                         for i in range(max_seq_length)]
+            rnn_input = [embedded_tokens_drop[:, i, :] for i in range(max_seq_length)]
             with tf.variable_scope("lstm") as scope:
                 single_cell = rnn_cell.DropoutWrapper(
                     rnn_cell.LSTMCell(hidden_size,
@@ -156,8 +161,7 @@ def main():
 
                 initial_state = cell.zero_state(batch_size, tf.float32)
 
-                rnn_output, rnn_state = rnn.rnn(cell, rnn_input,
-                                                                initial_state=initial_state,
+                rnn_output, rnn_state = rnn.rnn(cell, rnn_input,initial_state=initial_state,
                                                                 sequence_length=seq_lengths)
 
                 states_list = []
@@ -193,9 +197,15 @@ def main():
                 update = opt.apply_gradients(zip(clipped_gradients,params), global_step=global_step)
                 loss_summ = tf.scalar_summary("{0}_loss".format(str_summary_type),mean_loss)
                 acc_summ = tf.scalar_summary("{0}_accuracy".format(str_summary_type),accuracy)
-                merged = tf.merge_summary([loss_summ, acc_summ])
+                #merged = tf.merge_summary([loss_summ, acc_summ])
+                merged = tf.merge_all_summaries()
             saver = tf.train.Saver(tf.all_variables())
 
+        #ckpt = tf.train.get_checkpoint_state(FLAGS.checkpoint_dir)
+        #if ckpt and gfile.Exists(ckpt.model_checkpoint_path):
+        #    print "Reading model parameters from {0}".format(ckpt.model_checkpoint_path)
+         #   saver.restore(session, ckpt.model_checkpoint_path)
+        #else:
             print "Created model with fresh parameters."
             init_op = tf.initialize_all_variables()
 
@@ -248,35 +258,21 @@ def main():
             test_sequence_lengths = np.split(test_sequence_lengths,num_test_batches)
 
             sv = tf.train.Supervisor(#is_chief=(FLAGS.task_index == 0),
-                                     logdir="/home/mac/venv/neural-sentiment-master/logs",
+                                     logdir="/tmp/tb_logs_sup",
                                      saver=saver,
                                      global_step=global_step,
+                                     summary_op=None
                                      init_op=init_op)
 
             #with sv.managed_session(server.target) as sess:
             with sv.prepare_or_wait_for_session(server.target) as sess:
 
-                if FLAGS.task_index == 0:
-                    writer = tf.train.SummaryWriter("/home/mac/venv/neural-sentiment-master/logs", sess.graph)
-
+                writer = tf.train.SummaryWriter("/tmp/tb_logs", sess.graph)
                 # starting at step 1 to prevent test set from running after first batch
-                for step in xrange(1, tot_steps+100):
-                    if (step == tot_steps+100):
-                        sv.stop()
-                        break
+                for step in xrange(1, tot_steps):
                     # Get a batch and make a step.
                     start_time = time.time()
-                    '''
-                    Inputs:
-                    session: tensorflow session
-                    inputs: list of list of ints representing tokens in review of batch_size
-                    output: list of sentiment scores
-                    seq_lengths: list of sequence lengths, provided at runtime to prevent need for padding
-                    Returns:
-                    merged_tb_vars, loss, none
-                    or (in forward only):
-                    merged_tb_vars, loss, outputs
-                    '''
+                    #getbatch()
                     input_feed = {}
                     # for i in xrange(max_seq_length):
                     input_feed[seq_input.name] = train_data[train_batch_pointer]  # .transpose()
@@ -290,15 +286,14 @@ def main():
                     output_feed = [merged, mean_loss, update]
                     outputs = sess.run(output_feed, input_feed)
 
-                    str_summary, step_loss, _ = outputs[0], outputs[1], None
+                    str_summary, step_loss = outputs[0], outputs[1]
 
                     step_time += (time.time() - start_time) / steps_per_checkpoint
                     loss += step_loss / steps_per_checkpoint
-
+                    # writer.add_summary(str_summary, step)
                     # Once in a while, we save checkpoint, print statistics, and run evals.
+                    writer.add_summary(str_summary, step)
                     if step % steps_per_checkpoint == 0:
-                        if FLAGS.task_index == 0:
-                            writer.add_summary(str_summary, step)
                         # Print statistics for the previous epoch.
                         print ("global step %d learning rate %.7f step-time %.2f loss %.4f"
                                % (global_step.eval(), learning_rate.eval(),step_time, loss))
@@ -323,7 +318,7 @@ def main():
 
                             _input_feed[str_summary_type.name] = "test"
                             _output_feed = [merged, mean_loss, y, accuracy]
-
+                            
                             outputs = sess.run(_output_feed, _input_feed)
                             str_summary, test_loss, _, _accuracy = outputs[0], outputs[1], outputs[2], outputs[3]
 
@@ -331,14 +326,16 @@ def main():
                             test_accuracy += _accuracy
                         normalized_test_loss, normalized_test_accuracy = loss / \
                             len(test_data), test_accuracy / len(test_data)
-                        checkpoint_path = os.path.join(FLAGS.checkpoint_dir,"sentiment{0}.ckpt".format(normalized_test_accuracy))
-                        saver.save(sess,checkpoint_path,global_step=global_step)
-                        if FLAGS.task_index == 0:
-                            writer.add_summary(str_summary, step)
+                        #checkpoint_path = os.path.join(FLAGS.checkpoint_dir,"sentiment{0}.ckpt".format(normalized_test_accuracy))
+                        #saver.save(sess,checkpoint_path,global_step=global_step)
+                        writer.add_summary(str_summary, step)
                         print "Avg Test Loss: {0}, Avg Test Accuracy: {1}".format(normalized_test_loss, normalized_test_accuracy)
                         print "-------Step {0}/{1}------".format(step, tot_steps)
                         loss = 0.0
                         sys.stdout.flush()
+                checkpoint_path = os.path.join(FLAGS.checkpoint_dir,"sentiment{0}.ckpt".format(normalized_test_accuracy))
+                saver.save(sess,checkpoint_path,global_step=global_step)
+            sv.stop()
 
 if __name__ == '__main__':
     main()
