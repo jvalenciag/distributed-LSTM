@@ -259,7 +259,7 @@ def main():
 
             sv = tf.train.Supervisor(#is_chief=(FLAGS.task_index == 0),
                                      logdir="/tmp/tb_logs_sup",
-                                     saver=saver,
+                                     saver=None,
                                      global_step=global_step,
                                      summary_op=None,
                                      init_op=init_op)
