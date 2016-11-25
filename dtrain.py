@@ -261,7 +261,7 @@ def main():
                                      logdir="/tmp/tb_logs_sup",
                                      saver=saver,
                                      global_step=global_step,
-                                     summary_op=None
+                                     summary_op=None,
                                      init_op=init_op)
 
             #with sv.managed_session(server.target) as sess:
@@ -318,7 +318,7 @@ def main():
 
                             _input_feed[str_summary_type.name] = "test"
                             _output_feed = [merged, mean_loss, y, accuracy]
-                            
+
                             outputs = sess.run(_output_feed, _input_feed)
                             str_summary, test_loss, _, _accuracy = outputs[0], outputs[1], outputs[2], outputs[3]
 
