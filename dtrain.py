@@ -292,8 +292,8 @@ def main():
                     loss += step_loss / steps_per_checkpoint
                     # writer.add_summary(str_summary, step)
                     # Once in a while, we save checkpoint, print statistics, and run evals.
-                    writer.add_summary(str_summary, step)
                     if step % steps_per_checkpoint == 0:
+                        writer.add_summary(str_summary, step)
                         # Print statistics for the previous epoch.
                         print ("global step %d learning rate %.7f step-time %.2f loss %.4f"
                                % (global_step.eval(), learning_rate.eval(),step_time, loss))
