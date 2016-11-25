@@ -60,8 +60,8 @@ steps_per_checkpoint = 50
 '''
 ClusterSpec
 '''
-parameter_server = ["mac-To-be-filled-by-O-E-M:2222"]
-#parameter_server = ["ps_host0:2222"]
+#parameter_server = ["mac-To-be-filled-by-O-E-M:2222"]
+parameter_server = ["sn26:2222"]
 
 tf.app.flags.DEFINE_string("workers", "", "hostname : port")
 
